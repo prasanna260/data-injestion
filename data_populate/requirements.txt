@@ -1,0 +1,7 @@
+# run this cell once to install required packages
+kiteconnect 
+pandas 
+psycopg2-binary 
+sqlalchemy 
+sqlalchemy-utils 
+python-dotenv
