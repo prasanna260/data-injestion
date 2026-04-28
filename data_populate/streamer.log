@@ -9701,3 +9701,210 @@ ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSO
 INFO:root:💾 Saved 500 records in 0.81s (619 rec/s) | 12 15min, 244 hourly, 244 daily | Queue: 3
 ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
 INFO:root:💾 Saved 500 records in 0.84s (598 rec/s) | 9 15min, 245 hourly, 246 daily | Queue: 3
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.63s (788 rec/s) | 8 15min, 246 hourly, 246 daily | Queue: 3
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.79s (629 rec/s) | 10 15min, 245 hourly, 245 daily | Queue: 3
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 270 records in 0.18s (1482 rec/s) | 4 15min, 133 hourly, 133 daily | Queue: 3
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.38s (1311 rec/s) | 21 15min, 240 hourly, 239 daily | Queue: 2
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.36s (1392 rec/s) | 13 15min, 243 hourly, 244 daily | Queue: 2
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.66s (763 rec/s) | 14 15min, 243 hourly, 243 daily | Queue: 2
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.27s (1876 rec/s) | 12 15min, 244 hourly, 244 daily | Queue: 2
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.29s (1722 rec/s) | 15 15min, 243 hourly, 242 daily | Queue: 2
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.19s (2576 rec/s) | 13 15min, 243 hourly, 244 daily | Queue: 2
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.33s (1500 rec/s) | 12 15min, 244 hourly, 244 daily | Queue: 2
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.18s (2797 rec/s) | 10 15min, 245 hourly, 245 daily | Queue: 2
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.29s (1742 rec/s) | 8 15min, 246 hourly, 246 daily | Queue: 2
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.18s (2799 rec/s) | 10 15min, 245 hourly, 245 daily | Queue: 2
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 216 records in 0.10s (2185 rec/s) | 4 15min, 106 hourly, 106 daily | Queue: 2
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.20s (2520 rec/s) | 21 15min, 240 hourly, 239 daily | Queue: 1
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.28s (1786 rec/s) | 13 15min, 243 hourly, 244 daily | Queue: 1
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.27s (1834 rec/s) | 14 15min, 243 hourly, 243 daily | Queue: 1
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.17s (2946 rec/s) | 13 15min, 244 hourly, 243 daily | Queue: 1
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.21s (2336 rec/s) | 15 15min, 242 hourly, 243 daily | Queue: 1
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.32s (1566 rec/s) | 13 15min, 244 hourly, 243 daily | Queue: 1
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.19s (2665 rec/s) | 12 15min, 244 hourly, 244 daily | Queue: 1
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.24s (2110 rec/s) | 9 15min, 245 hourly, 246 daily | Queue: 1
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.30s (1681 rec/s) | 8 15min, 246 hourly, 246 daily | Queue: 1
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.30s (1645 rec/s) | 10 15min, 245 hourly, 245 daily | Queue: 1
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 306 records in 0.18s (1675 rec/s) | 4 15min, 151 hourly, 151 daily | Queue: 1
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.12s (4133 rec/s) | 21 15min, 240 hourly, 239 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.21s (2363 rec/s) | 13 15min, 243 hourly, 244 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.26s (1959 rec/s) | 14 15min, 243 hourly, 243 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.15s (3392 rec/s) | 13 15min, 244 hourly, 243 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.10s (4850 rec/s) | 12 15min, 244 hourly, 244 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.14s (3622 rec/s) | 16 15min, 242 hourly, 242 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.20s (2469 rec/s) | 12 15min, 244 hourly, 244 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.13s (3768 rec/s) | 6 15min, 247 hourly, 247 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.19s (2646 rec/s) | 11 15min, 244 hourly, 245 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.23s (2190 rec/s) | 10 15min, 245 hourly, 245 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 312 records in 0.24s (1278 rec/s) | 4 15min, 154 hourly, 154 daily | Queue: 0
+INFO:root:📊 STATUS: 18,614,831 received | 18,586,147 processed | 28684 buffered | 2482 active | ProcQ: 0 | DBQ: 0 | 1,927,447 saved | Failed: 0 | Vol: TEXINFRA:149,660, DPWIRES:8,353
+INFO:root:⏰ Interval update (60s): 09:57:13 UTC
+INFO:root:📤 Queued 51902 ticks from 2595 instruments | Processing queue: 1
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 1.46s (342 rec/s) | 21 15min, 240 hourly, 239 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 1.13s (444 rec/s) | 13 15min, 243 hourly, 244 daily | Queue: 0
+INFO:root:📊 STATUS: 18,642,173 received | 18,638,049 processed | 4124 buffered | 1483 active | ProcQ: 0 | DBQ: 0 | 1,928,447 saved | Failed: 0 | Vol: TEXINFRA:149,660, DPWIRES:8,354
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 1.78s (281 rec/s) | 14 15min, 243 hourly, 243 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 2.99s (167 rec/s) | 13 15min, 244 hourly, 243 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 3.10s (161 rec/s) | 10 15min, 245 hourly, 245 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 3.86s (130 rec/s) | 18 15min, 241 hourly, 241 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 1.91s (262 rec/s) | 12 15min, 244 hourly, 244 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 1.79s (280 rec/s) | 6 15min, 247 hourly, 247 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 1.67s (300 rec/s) | 11 15min, 244 hourly, 245 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 1.73s (288 rec/s) | 10 15min, 245 hourly, 245 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 322 records in 0.95s (341 rec/s) | 4 15min, 159 hourly, 159 daily | Queue: 0
+INFO:root:📊 STATUS: 18,669,390 received | 18,638,049 processed | 31341 buffered | 2550 active | ProcQ: 0 | DBQ: 0 | 1,932,769 saved | Failed: 0 | Vol: TEXINFRA:149,660, DPWIRES:8,354
+INFO:root:⏰ Interval update (60s): 09:58:13 UTC
+INFO:root:📤 Queued 53875 ticks from 2658 instruments | Processing queue: 1
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 1.04s (479 rec/s) | 21 15min, 240 hourly, 239 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 1.07s (469 rec/s) | 8 15min, 246 hourly, 246 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 1.06s (472 rec/s) | 20 15min, 240 hourly, 240 daily | Queue: 0
+INFO:root:📊 STATUS: 18,695,371 received | 18,691,924 processed | 3447 buffered | 1508 active | ProcQ: 0 | DBQ: 0 | 1,934,269 saved | Failed: 0 | Vol: TEXINFRA:150,079, DPWIRES:8,495
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.84s (596 rec/s) | 13 15min, 243 hourly, 244 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.50s (995 rec/s) | 10 15min, 245 hourly, 245 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.29s (1717 rec/s) | 13 15min, 244 hourly, 243 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.30s (1688 rec/s) | 13 15min, 243 hourly, 244 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.24s (2097 rec/s) | 9 15min, 246 hourly, 245 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.28s (1797 rec/s) | 8 15min, 246 hourly, 246 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.25s (1982 rec/s) | 9 15min, 245 hourly, 246 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 448 records in 0.23s (1913 rec/s) | 8 15min, 220 hourly, 220 daily | Queue: 0
+INFO:root:📊 STATUS: 18,721,734 received | 18,691,924 processed | 29810 buffered | 2514 active | ProcQ: 0 | DBQ: 0 | 1,938,217 saved | Failed: 0 | Vol: TEXINFRA:150,079, DPWIRES:8,495
+INFO:root:⏰ Interval update (60s): 09:59:13 UTC
+INFO:root:📤 Queued 52191 ticks from 2635 instruments | Processing queue: 1
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.16s (3065 rec/s) | 21 15min, 240 hourly, 239 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.13s (3790 rec/s) | 13 15min, 243 hourly, 244 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.14s (3617 rec/s) | 14 15min, 243 hourly, 243 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.17s (2994 rec/s) | 13 15min, 244 hourly, 243 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.12s (4135 rec/s) | 10 15min, 245 hourly, 245 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.12s (4049 rec/s) | 18 15min, 241 hourly, 241 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.12s (4004 rec/s) | 9 15min, 245 hourly, 246 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.10s (5181 rec/s) | 9 15min, 246 hourly, 245 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.11s (4479 rec/s) | 11 15min, 244 hourly, 245 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.14s (3482 rec/s) | 6 15min, 247 hourly, 247 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 402 records in 0.13s (3076 rec/s) | 8 15min, 197 hourly, 197 daily | Queue: 0
+INFO:root:📊 STATUS: 18,747,473 received | 18,744,115 processed | 3358 buffered | 1400 active | ProcQ: 0 | DBQ: 0 | 1,943,619 saved | Failed: 0 | Vol: TEXINFRA:150,381, DPWIRES:8,520
+INFO:root:📊 STATUS: 18,771,680 received | 18,744,115 processed | 27565 buffered | 2525 active | ProcQ: 0 | DBQ: 0 | 1,943,619 saved | Failed: 0 | Vol: TEXINFRA:150,381, DPWIRES:8,520
+INFO:root:🕐 New hour detected (UTC): 2026-04-28 10:00:00+00:00
+INFO:root:📤 Queued 36584 ticks from 2560 instruments | Processing queue: 1
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.36s (1400 rec/s) | 21 15min, 240 hourly, 239 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.26s (1909 rec/s) | 13 15min, 243 hourly, 244 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.18s (2721 rec/s) | 14 15min, 243 hourly, 243 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.19s (2695 rec/s) | 13 15min, 244 hourly, 243 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.17s (2868 rec/s) | 15 15min, 242 hourly, 243 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.25s (2024 rec/s) | 13 15min, 244 hourly, 243 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.19s (2681 rec/s) | 12 15min, 244 hourly, 244 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.16s (3131 rec/s) | 9 15min, 245 hourly, 246 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.20s (2481 rec/s) | 8 15min, 246 hourly, 246 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.24s (2093 rec/s) | 10 15min, 245 hourly, 245 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 252 records in 0.09s (2790 rec/s) | 4 15min, 124 hourly, 124 daily | Queue: 0
+INFO:root:⏰ Interval update (60s): 10:00:14 UTC
+INFO:root:📤 Queued 8395 ticks from 2008 instruments | Processing queue: 1
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.11s (4421 rec/s) | 24 15min, 238 hourly, 238 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.12s (4258 rec/s) | 15 15min, 243 hourly, 242 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.11s (4744 rec/s) | 19 15min, 240 hourly, 241 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.13s (3726 rec/s) | 18 15min, 241 hourly, 241 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.11s (4635 rec/s) | 18 15min, 241 hourly, 241 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.09s (5719 rec/s) | 12 15min, 244 hourly, 244 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.08s (6142 rec/s) | 11 15min, 245 hourly, 244 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.11s (4424 rec/s) | 11 15min, 244 hourly, 245 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 147 records in 0.04s (3739 rec/s) | 3 15min, 72 hourly, 72 daily | Queue: 0
+INFO:root:📊 STATUS: 18,791,234 received | 18,789,094 processed | 2140 buffered | 411 active | ProcQ: 0 | DBQ: 0 | 1,953,018 saved | Failed: 0 | Vol: TEXINFRA:154,476, DPWIRES:8,562
+INFO:root:📊 STATUS: 18,803,064 received | 18,789,094 processed | 13970 buffered | 530 active | ProcQ: 0 | DBQ: 0 | 1,953,018 saved | Failed: 0 | Vol: TEXINFRA:154,476, DPWIRES:8,562
+INFO:root:⏰ Interval update (60s): 10:01:14 UTC
+INFO:root:📤 Queued 22802 ticks from 546 instruments | Processing queue: 1
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 1.16s (433 rec/s) | 57 15min, 222 hourly, 221 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 500 records in 0.89s (562 rec/s) | 53 15min, 223 hourly, 224 daily | Queue: 0
+ERROR:cache_service:Error setting OHLC batch: Object of type datetime is not JSON serializable
+INFO:root:💾 Saved 223 records in 0.37s (608 rec/s) | 21 15min, 101 hourly, 101 daily | Queue: 0
+INFO:root:📊 STATUS: 18,813,264 received | 18,811,896 processed | 1368 buffered | 171 active | ProcQ: 0 | DBQ: 0 | 1,954,241 saved | Failed: 0 | Vol: TEXINFRA:154,476, DPWIRES:8,562
+INFO:root:📊 STATUS: 18,825,901 received | 18,811,896 processed | 14005 buffered | 2553 active | ProcQ: 0 | DBQ: 0 | 1,954,241 saved | Failed: 0 | Vol: TEXINFRA:154,476, DPWIRES:8,562
