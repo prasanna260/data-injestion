@@ -8,6 +8,7 @@ import os
 import sys
 import time
 import logging
+import argparse
 from datetime import datetime, timedelta, timezone
 from io import StringIO
 import pandas as pd
@@ -35,7 +36,7 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 # Configuration
-DB_URI = os.getenv("RAILWAY_DB_URI") or "postgresql://postgres:ZpfLDFFOLJemAIEkOTBpEjCuBWYyIwSm@switchback.proxy.rlwy.net:19114/railway"
+DB_URI = os.getenv("DATABASE_URL")
 KITE_API_KEY = os.getenv("KITE_API_KEY")
 KITE_API_SECRET = os.getenv("KITE_API_SECRET")
 KITE_ACCESS_TOKEN = os.getenv("KITE_ACCESS_TOKEN")
@@ -52,7 +53,7 @@ if KITE_ACCESS_TOKEN:
 INTERVALS = [
     # '1minute', '3minute', '5minute', '15minute', '30minute',
     # '60minute', '180minute', '1day', '1week', '1month'
-    '1day'
+    '1day', '60minute'
 ]
 
 INTERVAL_LOOKBACK_YEARS = {
@@ -81,7 +82,6 @@ CHUNK_DAYS_BY_INTERVAL = {
     '1month': 365*5,
 }
 
-
 def fetch_historical(instrument_token, from_date, to_date, interval='5minute'):
     """Fetch historical data from Kite Connect API"""
     interval_map = {
@@ -96,15 +96,15 @@ def fetch_historical(instrument_token, from_date, to_date, interval='5minute'):
         '1week': 'week',
         '1month': 'month',
     }
-    
+
     kite_interval = interval_map.get(interval, interval)
-    
+
     try:
         from_dt = from_date if isinstance(from_date, datetime) else pd.to_datetime(from_date)
         to_dt = to_date if isinstance(to_date, datetime) else pd.to_datetime(to_date)
-        
+
         time.sleep(0.25)  # Rate limiting
-        
+
         records = kite.historical_data(
             instrument_token=instrument_token,
             from_date=from_dt,
@@ -113,16 +113,16 @@ def fetch_historical(instrument_token, from_date, to_date, interval='5minute'):
             continuous=False,
             oi=True
         )
-        
+
         if not records:
             return pd.DataFrame()
-        
+
         df = pd.DataFrame(records)
         if 'date' in df.columns:
             df = df.rename(columns={'date': 'ts'})
-        
+
         return df
-        
+
     except Exception as e:
         err_str = str(e)
         if '503' in err_str or 'rate' in err_str.lower() or 'too many' in err_str.lower():
@@ -130,7 +130,6 @@ def fetch_historical(instrument_token, from_date, to_date, interval='5minute'):
             raise
         logger.error(f"Error fetching historical data: {e}")
         return pd.DataFrame()
-
 
 def df_to_postgres_copy(df, table_name, conn, columns=None, commit=True):
     """Fast bulk insert using COPY FROM STDIN"""
@@ -152,7 +151,6 @@ def df_to_postgres_copy(df, table_name, conn, columns=None, commit=True):
         raise
     finally:
         cur.close()
-
 
 def ingest_candles_df(df_candles, instrument_token, tradingsymbol, exchange='NSE', interval='5minute'):
     """Normalize and bulk insert candles using temp table approach"""
@@ -196,17 +194,17 @@ def ingest_candles_df(df_candles, instrument_token, tradingsymbol, exchange='NSE
                 oi BIGINT
             ) ON COMMIT DROP
         """)
-        
+
         columns = ['instrument_token', 'tradingsymbol', 'exchange', 'interval', 'ts', 'open', 'high', 'low', 'close', 'volume', 'oi']
         df_to_postgres_copy(df_to_copy, 'temp_ohlcv', conn, columns=columns, commit=False)
-        
+
         cur.execute("""
             INSERT INTO ohlcv (instrument_token, tradingsymbol, exchange, interval, ts, open, high, low, close, volume, oi)
             SELECT instrument_token, tradingsymbol, exchange, interval, ts, open, high, low, close, volume, oi
             FROM temp_ohlcv
             ON CONFLICT (instrument_token, interval, ts) DO NOTHING
         """)
-        
+
         inserted = cur.rowcount
         conn.commit()
         return inserted
@@ -217,7 +215,6 @@ def ingest_candles_df(df_candles, instrument_token, tradingsymbol, exchange='NSE
         cur.close()
         conn.close()
 
-
 def make_date_chunks(start_dt, end_dt, chunk_days):
     """Yield date chunks"""
     cur = start_dt
@@ -225,7 +222,6 @@ def make_date_chunks(start_dt, end_dt, chunk_days):
         nxt = min(cur + timedelta(days=chunk_days), end_dt)
         yield (cur, nxt)
         cur = nxt + timedelta(seconds=1)
-
 
 def process_instrument_interval(instrument_token, tradingsymbol, interval, start_ts, end_ts,
                                 chunk_days=None, max_retries=5, sleep_between_chunks=1.0,
@@ -270,7 +266,7 @@ def process_instrument_interval(instrument_token, tradingsymbol, interval, start
                          {"jid": job_id})
 
         chunks = list(make_date_chunks(resume_after, end_ts, chunk_days))
-        
+
         for chunk_start, chunk_end in chunks:
             chunks_processed += 1
             success = False
@@ -288,7 +284,7 @@ def process_instrument_interval(instrument_token, tradingsymbol, interval, start
                         inserted_total += inserted
                         if progress_bar and inserted > 0:
                             progress_bar.write(f"  ✓ Inserted {inserted} rows: {chunk_start.date()} -> {chunk_end.date()}")
-                    
+
                     with engine.begin() as conn:
                         conn.execute(text("""
                             UPDATE ingest_jobs SET last_ingested_ts = :ts, updated_at = now()
@@ -300,17 +296,17 @@ def process_instrument_interval(instrument_token, tradingsymbol, interval, start
                         progress_bar.write(f"  ✗ Attempt {attempts}/{max_retries} failed: {str(e)[:100]}")
                     if attempts < max_retries:
                         time.sleep(1.0 * attempts)
-            
+
             if not success:
                 chunks_failed += 1
-            
+
             if progress_bar:
                 progress_bar.update(1)
             time.sleep(sleep_between_chunks)
 
         with engine.begin() as conn:
             conn.execute(text("UPDATE ingest_jobs SET status='done', updated_at=now() WHERE job_id=:jid"), {"jid": job_id})
-        
+
         return {"inserted": inserted_total, "chunks": chunks_processed, "failed": chunks_failed, "status": "done"}
     except Exception as e:
         err = str(e)[:2000]
@@ -320,56 +316,94 @@ def process_instrument_interval(instrument_token, tradingsymbol, interval, start
         logger.error(f"Job failed for {tradingsymbol} {interval}: {e}")
         return {"inserted": inserted_total, "chunks": chunks_processed, "failed": chunks_failed, "status": "error"}
 
-
 def main():
     """Main orchestrator with progress tracking"""
     logger.info("=" * 80)
     logger.info("Starting Historical Data Ingestion")
     logger.info("=" * 80)
-    
+
+    # Parse command line arguments
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--symbol", help="Run ingestion for a single symbol")
+    args = parser.parse_args()
+
     # Configuration
-    LIMIT_INSTRUMENTS = int(os.getenv("LIMIT_INSTRUMENTS", "500"))  # Changed default to 500
     END_DATE = datetime.now(timezone.utc)
-    
-    logger.info(f"Fetching up to {LIMIT_INSTRUMENTS} instruments")
-    
-    # Get instruments
-    with engine.connect() as conn:
-        df_candidates = pd.read_sql("""
+
+    # Candidate selection based on command line arguments
+    if args.symbol:
+        query = text("""
             SELECT instrument_token, tradingsymbol, exchange
             FROM instruments
-            WHERE exchange ILIKE 'NSE' AND (instrument_type ILIKE 'EQ' OR instrument_type = '')
+            WHERE tradingsymbol = :symbol
+        """)
+        with engine.connect() as conn:
+            df_candidates = pd.read_sql(query, conn, params={"symbol": args.symbol})
+        logger.info(f"Found {len(df_candidates)} instruments for symbol '{args.symbol}'")
+    else:
+        # Option 1: Read from file (comment out if you want all instruments)
+        # indices_file = "indices_list.txt"
+        # try:
+        #     with open(indices_file, 'r') as f:
+        #         indices_list = [line.strip() for line in f if line.strip()]
+        #     logger.info(f"Loaded {len(indices_list)} indices from {indices_file}")
+        # except FileNotFoundError:
+        #     logger.error(f"Indices file {indices_file} not found!")
+        #     return
+        #
+        # # Get instruments for the specified indices
+        # indices_placeholder = ', '.join(['%s'] * len(indices_list))
+        # query = f"""
+        #     SELECT instrument_token, tradingsymbol, exchange
+        #     FROM instruments
+        #     WHERE tradingsymbol IN ({indices_placeholder})
+        #     ORDER BY tradingsymbol
+        # """
+        # with engine.connect() as conn:
+        #     df_candidates = pd.read_sql(query, conn, params=tuple(indices_list))
+        # logger.info(f"Found {len(df_candidates)}/{len(indices_list)} indices in database: {', '.join(df_candidates['tradingsymbol'].tolist())}")
+        # if len(df_candidates) < len(indices_list):
+        #     missing = set(indices_list) - set(df_candidates['tradingsymbol'].tolist())
+        #     logger.warning(f"Missing indices: {', '.join(missing)}")
+
+        # Option 2: Get ALL instruments from database (currently active)
+        query = """
+            SELECT instrument_token, tradingsymbol, exchange
+            FROM instruments
             ORDER BY tradingsymbol
-            LIMIT %s
-        """, conn, params=(LIMIT_INSTRUMENTS,))
-    
-    logger.info(f"Found {len(df_candidates)} instruments to process")
-    
+        """
+
+        with engine.connect() as conn:
+            df_candidates = pd.read_sql(query, conn)
+
+        logger.info(f"Found {len(df_candidates)} instruments in database")
+        logger.info(f"Sample instruments: {', '.join(df_candidates['tradingsymbol'].head(10).tolist())}")
+
     summary = []
-    
+
     # Progress tracking
     total_tasks = len(df_candidates) * len(INTERVALS)
-    
+
     with tqdm(total=total_tasks, desc="Overall Progress", position=0) as pbar_overall:
         for idx, r in df_candidates.iterrows():
             tkn = int(r['instrument_token'])
             sym = r['tradingsymbol']
-            
+
             logger.info(f"\n{'='*60}")
             logger.info(f"Processing: {sym} ({tkn}) - {idx+1}/{len(df_candidates)}")
             logger.info(f"{'='*60}")
-            
+
             for itv in INTERVALS:
                 lookback_years = INTERVAL_LOOKBACK_YEARS.get(itv, 3)
                 start_date = END_DATE - timedelta(days=365*lookback_years)
                 chunk_days = CHUNK_DAYS_BY_INTERVAL.get(itv, 90)
-                
+
                 # Calculate total chunks for this interval
                 total_days = (END_DATE - start_date).days
                 total_chunks = max(1, total_days // chunk_days)
-                
+
                 logger.info(f"\n{sym} - {itv}: {lookback_years} years ({total_chunks} chunks)")
-                
+
                 with tqdm(total=total_chunks, desc=f"  {itv}", position=1, leave=False) as pbar_interval:
                     res = process_instrument_interval(
                         instrument_token=tkn,
@@ -382,7 +416,7 @@ def main():
                         sleep_between_chunks=1.0,
                         progress_bar=pbar_interval
                     )
-                
+
                 summary.append({
                     'symbol': sym,
                     'interval': itv,
@@ -392,33 +426,33 @@ def main():
                     'chunks': res.get('chunks', 0),
                     'failed': res.get('failed', 0)
                 })
-                
+
                 pbar_overall.update(1)
                 time.sleep(2.0)  # Rate limiting between intervals
-    
+
     # Summary report
     logger.info("\n" + "=" * 80)
     logger.info("INGESTION SUMMARY")
     logger.info("=" * 80)
-    
+
     df_summary = pd.DataFrame(summary)
-    
-    logger.info(f"\nTotal instruments processed: {len(df_candidates)}")
+
+    logger.info(f"\nTotal indices processed: {len(df_candidates)}")
     logger.info(f"Total intervals: {len(INTERVALS)}")
     logger.info(f"Total rows inserted: {df_summary['inserted'].sum():,}")
     logger.info(f"Successful jobs: {len(df_summary[df_summary['status'] == 'done'])}")
     logger.info(f"Failed jobs: {len(df_summary[df_summary['status'] == 'error'])}")
-    
+
     # Save summary to CSV
     summary_file = f"ingestion_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
     df_summary.to_csv(summary_file, index=False)
     logger.info(f"\nDetailed summary saved to: {summary_file}")
-    
+
     # Print top performers
     logger.info("\nTop 10 by rows inserted:")
     top10 = df_summary.nlargest(10, 'inserted')[['symbol', 'interval', 'inserted']]
     logger.info("\n" + top10.to_string(index=False))
-    
+
     logger.info("\n" + "=" * 80)
     logger.info("Ingestion Complete!")
     logger.info("=" * 80)
@@ -433,3 +467,4 @@ if __name__ == "__main__":
     except Exception as e:
         logger.error(f"\n\nFatal error: {e}", exc_info=True)
         sys.exit(1)
+

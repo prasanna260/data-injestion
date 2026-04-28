@@ -1,0 +1,1226 @@
+import logging
+import os
+import sys
+from dotenv import load_dotenv
+from kiteconnect import KiteTicker, KiteConnect
+import pandas as pd
+from datetime import datetime, timedelta, time, timezone
+import time as time_module
+import psycopg2
+from psycopg2.pool import ThreadedConnectionPool
+from sqlalchemy import create_engine
+from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy import Column, Integer, String, DateTime, Float, BigInteger, Text, Numeric
+import json
+from collections import defaultdict
+import threading
+import queue
+import pytz
+
+# Load environment variables
+load_dotenv()
+
+# Import cache service
+try:
+    # Add parent directory to path to import cache_service
+    parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if parent_dir not in sys.path:
+        sys.path.insert(0, parent_dir)
+    
+    from cache_service import cache
+    CACHE_ENABLED = True
+    logging.info("✅ Cache service imported successfully")
+except ImportError as e:
+    logging.warning(f"⚠️ Cache service not available: {e}")
+    CACHE_ENABLED = False
+    cache = None
+
+# Configuration constants
+DEFAULT_UPDATE_INTERVAL = 60  # Default 1 minute in seconds
+MIN_UPDATE_INTERVAL = 15     # Minimum 15 seconds
+
+# Timezone configuration
+IST = pytz.timezone('Asia/Kolkata')
+UTC = pytz.UTC
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('streamer.log'),
+        logging.StreamHandler()
+    ]
+)
+
+# Database connection using environment variable
+connection_string = os.getenv('DATABASE_URL')
+engine = create_engine(connection_string, pool_size=10, max_overflow=20)
+
+# Parse connection string for psycopg2
+import urllib.parse as urlparse
+url = urlparse.urlparse(connection_string)
+
+# Create a connection pool for thread-safe database operations
+db_pool = ThreadedConnectionPool(
+    minconn=2,
+    maxconn=10,
+    host=url.hostname,
+    database=url.path[1:],
+    user=url.username,
+    password=url.password,
+    port=url.port
+)
+
+Base = declarative_base()
+Session = sessionmaker(bind=engine)
+
+class OHLCVData(Base):
+    __tablename__ = 'ohlcv'
+    
+    instrument_token = Column(BigInteger, nullable=False, primary_key=True)
+    tradingsymbol = Column(Text)
+    exchange = Column(Text)
+    interval = Column(Text, nullable=False, primary_key=True)
+    ts = Column(DateTime, nullable=False, primary_key=True)
+    open = Column(Numeric)
+    high = Column(Numeric)
+    low = Column(Numeric)
+    close = Column(Numeric)
+    volume = Column(BigInteger)
+    oi = Column(BigInteger)
+
+# Kite Connect credentials from environment variables
+api_key = os.getenv('KITE_API_KEY')
+api_secret = os.getenv('KITE_API_SECRET')
+access_token = os.getenv('KITE_ACCESS_TOKEN')
+
+class RealTimeStreamer:
+    def __init__(self, update_interval=None):
+        logging.info("🔧 Initializing RealTimeStreamer...")
+        
+        self.session = Session()
+        self.instruments_data = {}
+        self.tick_buffer = defaultdict(list)
+        
+        logging.info("📦 Setting up queues...")
+        # Multi-stage queue architecture
+        self.processing_queue = queue.Queue(maxsize=5000)  # Raw ticks to process
+        self.db_queue = queue.Queue(maxsize=1000)  # OHLCV records to save
+        
+        # Worker threads
+        self.processing_worker_thread = None
+        self.processing_worker_running = False
+        self.db_worker_threads = []  # Multiple DB workers
+        self.db_worker_running = False
+        self.num_db_workers = 1  # Single DB worker to avoid deadlocks
+        
+        logging.info("⏰ Initializing datetime tracking...")
+        # Initialize all datetime tracking variables as timezone-aware UTC
+        current_utc = datetime.now(UTC)
+        self.last_hour_update = None
+        self.last_day_update = None
+        self.last_status_update = None
+        self.last_interval_update = None
+        
+        self.total_ticks_received = 0
+        self.total_ticks_processed = 0
+        self.total_records_processed = 0
+        self.total_db_operations = 0
+        self.failed_db_operations = 0
+        self.kws = None
+        self.access_token = None
+        
+        logging.info("📊 Initializing OHLC tracking...")
+        # OHLC tracking for proper aggregation
+        self.ohlc_lock = threading.Lock()  # Thread safety for OHLC data
+        self.hourly_ohlc = defaultdict(lambda: {
+            'open': None, 'high': None, 'low': None, 'close': None, 
+            'volume': 0, 'volume_start': None, 'oi': 0, 'first_tick_time': None, 'last_tick_time': None
+        })
+        self.daily_ohlc = defaultdict(lambda: {
+            'open': None, 'high': None, 'low': None, 'close': None, 
+            'volume': 0, 'volume_start': None, 'oi': 0, 'first_tick_time': None, 'last_tick_time': None
+        })
+        self.fifteen_min_ohlc = defaultdict(lambda: {
+            'open': None, 'high': None, 'low': None, 'close': None, 
+            'volume': 0, 'volume_start': None, 'oi': 0, 'first_tick_time': None, 'last_tick_time': None
+        })
+        
+        # Configure update interval (in seconds)
+        logging.info("⚙️ Configuring update interval...")
+        self.update_interval = self._get_update_interval(update_interval)
+        
+        # Load instruments from database
+        logging.info("📥 Loading instruments from database...")
+        self.load_instruments()
+        logging.info(f"✅ Loaded {len(self.instruments_data)} instruments")
+        
+        # Initialize Kite Connect
+        logging.info("🔐 Setting up Kite connection...")
+        self.setup_kite_connection()
+        logging.info("✅ Kite connection setup complete")
+        
+        # Start worker threads
+        logging.info("🚀 Starting worker threads...")
+        self.start_processing_worker()
+        self.start_db_worker()
+        logging.info("✅ RealTimeStreamer initialization complete")
+        
+    def _get_update_interval(self, interval):
+        """Get and validate update interval from config or parameter"""
+        if interval is not None:
+            # Use provided parameter
+            configured_interval = interval
+        else:
+            # Try to get from environment variable
+            env_interval = os.getenv('STREAMER_UPDATE_INTERVAL')
+            if env_interval:
+                try:
+                    configured_interval = int(env_interval)
+                except ValueError:
+                    logging.warning(f"Invalid STREAMER_UPDATE_INTERVAL value: {env_interval}. Using default.")
+                    configured_interval = DEFAULT_UPDATE_INTERVAL
+            else:
+                configured_interval = DEFAULT_UPDATE_INTERVAL
+        
+        # Validate interval
+        if configured_interval < MIN_UPDATE_INTERVAL:
+            logging.warning(f"Update interval {configured_interval}s is too low. Minimum is {MIN_UPDATE_INTERVAL}s. Using minimum.")
+            configured_interval = MIN_UPDATE_INTERVAL
+        
+        logging.info(f"📊 Update interval configured: {configured_interval} seconds")
+        return configured_interval
+        
+    def load_instruments(self):
+        """Load instrument tokens from database - all active instruments"""
+        conn = None
+        cursor = None
+        try:
+            logging.info("🔌 Getting database connection from pool...")
+            # Get connection from pool
+            conn = db_pool.getconn()
+            cursor = conn.cursor()
+            
+            logging.info("📊 Querying instruments table...")
+            # Get all active instruments from database (not just indices)
+            cursor.execute("""
+                SELECT instrument_token, tradingsymbol, exchange, segment
+                FROM instruments 
+                WHERE is_active = true
+                ORDER BY tradingsymbol
+            """)
+            
+            logging.info("📦 Fetching instrument data...")
+            instruments = cursor.fetchall()
+            logging.info(f"✅ Fetched {len(instruments)} instruments from database")
+            
+            # Check cache availability ONCE before the loop
+            logging.info("🔍 Checking cache availability...")
+            cache_available = CACHE_ENABLED and cache and cache.is_available()
+            if cache_available:
+                logging.info("✅ Cache is available")
+            else:
+                logging.info("⚠️ Cache is not available - skipping cache population")
+            
+            logging.info("💾 Populating instruments data...")
+            for token, symbol, exchange, segment in instruments:
+                self.instruments_data[token] = {
+                    'tradingsymbol': symbol,
+                    'exchange': exchange,
+                    'segment': segment
+                }
+            
+            logging.info(f"✅ Loaded {len(self.instruments_data)} instruments into memory")
+            
+            # Populate cache in batch (much faster than one-by-one)
+            if cache_available:
+                try:
+                    logging.info(f"📤 Writing {len(instruments)} instruments to cache in batch...")
+                    cache.set_instrument_batch(instruments)
+                    logging.info(f"✅ Populated cache with {len(instruments)} instrument mappings")
+                except Exception as cache_error:
+                    logging.warning(f"⚠️ Cache batch write failed: {cache_error}")
+            elif CACHE_ENABLED:
+                logging.warning(f"⚠️ Cache was not available - instruments loaded without caching")
+            
+            logging.info("📋 Sample instruments:")
+            for token, data in list(self.instruments_data.items())[:10]:
+                logging.info(f"  {token}: {data['tradingsymbol']} ({data['exchange']})")
+                
+        except Exception as e:
+            logging.error(f"❌ Error loading instruments: {e}")
+            import traceback
+            logging.error(f"Traceback: {traceback.format_exc()}")
+            raise
+        finally:
+            logging.info("🔒 Cleaning up database connection...")
+            if cursor:
+                cursor.close()
+            if conn:
+                db_pool.putconn(conn)
+            logging.info("✅ Database connection cleanup complete")
+    
+    def setup_kite_connection(self):
+        """Setup Kite Connect using access token from environment"""
+        try:
+            # Use access token from environment variables
+            if access_token:
+                self.access_token = access_token
+                logging.info("Successfully loaded access token from environment")
+            else:
+                # Fallback to manual token entry if not in .env
+                kite = KiteConnect(api_key=api_key)
+                print("Login URL:", kite.login_url())
+                request_token = input("Enter request token from login URL: ")
+                
+                session_data = kite.generate_session(request_token=request_token, api_secret=api_secret)
+                self.access_token = session_data["access_token"]
+                logging.info("Successfully obtained access token via manual login")
+                
+        except Exception as e:
+            logging.error(f"Error setting up Kite connection: {e}")
+            raise
+    
+    def start_processing_worker(self):
+        """Start background thread for tick processing"""
+        self.processing_worker_running = True
+        self.processing_worker_thread = threading.Thread(target=self._processing_worker, daemon=True)
+        self.processing_worker_thread.start()
+        logging.info("🔧 Processing worker thread started")
+    
+    def _processing_worker(self):
+        """Background worker that processes ticks and generates OHLCV records"""
+        logging.info("⚙️ Processing worker running...")
+        
+        while self.processing_worker_running:
+            try:
+                # Get work from queue with timeout
+                work_item = self.processing_queue.get(timeout=1.0)
+                
+                if work_item is None:  # Poison pill to stop worker
+                    break
+                
+                # Unpack work item
+                ticks_batch, timestamp_ist = work_item
+                
+                # Process ticks (this is the heavy CPU work)
+                ohlcv_records = self._aggregate_ticks_to_intervals_fast(ticks_batch, timestamp_ist)
+                
+                # Queue for database save
+                if ohlcv_records:
+                    try:
+                        self.db_queue.put_nowait(ohlcv_records)
+                    except queue.Full:
+                        logging.warning(f"⚠️ DB queue full! Dropping {len(ohlcv_records)} records")
+                        self.failed_db_operations += 1
+                
+                self.total_ticks_processed += len(ticks_batch)
+                self.processing_queue.task_done()
+                
+            except queue.Empty:
+                continue
+            except Exception as e:
+                logging.error(f"Error in processing worker: {e}")
+                import traceback
+                logging.error(f"Traceback: {traceback.format_exc()}")
+        
+        logging.info("⚙️ Processing worker stopped")
+    
+    def start_db_worker(self):
+        """Start multiple background threads for database operations"""
+        self.db_worker_running = True
+        for i in range(self.num_db_workers):
+            thread = threading.Thread(target=self._db_worker, daemon=True, name=f"DBWorker-{i+1}")
+            thread.start()
+            self.db_worker_threads.append(thread)
+        logging.info(f"🔧 Started {self.num_db_workers} database worker threads")
+    
+    def _db_worker(self):
+        """Background worker that processes database operations from queue"""
+        conn = None
+        cursor = None
+        
+        try:
+            # Get dedicated connection for this worker
+            conn = db_pool.getconn()
+            cursor = conn.cursor()
+            
+            while self.db_worker_running:
+                try:
+                    # Get work from queue with timeout
+                    work_item = self.db_queue.get(timeout=1.0)
+                    
+                    if work_item is None:  # Poison pill to stop worker
+                        break
+                    
+                    # Process the database operation
+                    ohlcv_records = work_item
+                    
+                    # Split large batches for better performance
+                    if len(ohlcv_records) > 1000:
+                        # Process in chunks of 500
+                        for i in range(0, len(ohlcv_records), 500):
+                            chunk = ohlcv_records[i:i+500]
+                            try:
+                                self._execute_bulk_upsert_fast(cursor, conn, chunk)
+                            except psycopg2.extensions.TransactionRollbackError:
+                                # Deadlock - already handled with retries in _execute_bulk_upsert_fast
+                                logging.warning(f"⚠️ Skipping chunk after deadlock retries exhausted")
+                                self.failed_db_operations += 1
+                            except Exception as e:
+                                logging.error(f"Error processing chunk: {e}")
+                                self.failed_db_operations += 1
+                                try:
+                                    conn.rollback()
+                                except:
+                                    pass
+                    else:
+                        try:
+                            self._execute_bulk_upsert_fast(cursor, conn, ohlcv_records)
+                        except psycopg2.extensions.TransactionRollbackError:
+                            # Deadlock - already handled with retries in _execute_bulk_upsert_fast
+                            logging.warning(f"⚠️ Skipping batch after deadlock retries exhausted")
+                            self.failed_db_operations += 1
+                        except Exception as e:
+                            logging.error(f"Error processing batch: {e}")
+                            self.failed_db_operations += 1
+                            try:
+                                conn.rollback()
+                            except:
+                                pass
+                    
+                    self.db_queue.task_done()
+                    
+                except queue.Empty:
+                    continue
+                except Exception as e:
+                    logging.error(f"Error in DB worker: {e}")
+                    self.failed_db_operations += 1
+                    try:
+                        conn.rollback()
+                    except:
+                        pass
+                    
+        except Exception as e:
+            logging.error(f"Fatal error in DB worker: {e}")
+        finally:
+            if cursor:
+                cursor.close()
+            if conn:
+                db_pool.putconn(conn)
+            logging.info("🔧 Database worker thread stopped")
+    
+    def _execute_bulk_upsert_fast(self, cursor, conn, ohlcv_records, retry_count=0, max_retries=3):
+        """Execute bulk upsert operation using COPY + temp table with deadlock retry"""
+        if not ohlcv_records:
+            return
+        
+        start_time = time_module.time()
+        
+        try:
+            # Create temp table
+            cursor.execute("""
+                CREATE TEMP TABLE temp_ohlcv_insert (
+                    instrument_token BIGINT,
+                    tradingsymbol TEXT,
+                    exchange TEXT,
+                    interval TEXT,
+                    ts TIMESTAMPTZ,
+                    open NUMERIC,
+                    high NUMERIC,
+                    low NUMERIC,
+                    close NUMERIC,
+                    volume BIGINT,
+                    oi BIGINT
+                ) ON COMMIT DROP
+            """)
+            
+            # Prepare data for COPY
+            from io import StringIO
+            buffer = StringIO()
+            null_marker = '\\N'
+            for record in ohlcv_records:
+                buffer.write(f"{record['instrument_token']}\t")
+                buffer.write(f"{record['tradingsymbol']}\t")
+                buffer.write(f"{record['exchange']}\t")
+                buffer.write(f"{record['interval']}\t")
+                buffer.write(f"{record['ts']}\t")
+                buffer.write(f"{record['open']}\t")
+                buffer.write(f"{record['high']}\t")
+                buffer.write(f"{record['low']}\t")
+                buffer.write(f"{record['close']}\t")
+                buffer.write(f"{record['volume']}\t")
+                oi_value = record['oi'] if record['oi'] is not None else null_marker
+                buffer.write(f"{oi_value}\n")
+            
+            buffer.seek(0)
+            
+            # Fast COPY into temp table
+            cursor.copy_from(buffer, 'temp_ohlcv_insert', columns=[
+                'instrument_token', 'tradingsymbol', 'exchange', 'interval', 'ts',
+                'open', 'high', 'low', 'close', 'volume', 'oi'
+            ])
+            
+            # Upsert from temp table to main table
+            cursor.execute("""
+                INSERT INTO ohlcv (instrument_token, tradingsymbol, exchange, interval, ts, open, high, low, close, volume, oi)
+                SELECT instrument_token, tradingsymbol, exchange, interval, ts, open, high, low, close, volume, oi
+                FROM temp_ohlcv_insert
+                ON CONFLICT (instrument_token, interval, ts) 
+                DO UPDATE SET
+                    tradingsymbol = EXCLUDED.tradingsymbol,
+                    exchange = EXCLUDED.exchange,
+                    open = COALESCE(ohlcv.open, EXCLUDED.open),
+                    high = GREATEST(COALESCE(ohlcv.high, 0), COALESCE(EXCLUDED.high, 0)),
+                    low = CASE 
+                        WHEN ohlcv.low IS NULL THEN EXCLUDED.low
+                        WHEN EXCLUDED.low IS NULL THEN ohlcv.low
+                        ELSE LEAST(ohlcv.low, EXCLUDED.low)
+                    END,
+                    close = EXCLUDED.close,
+                    volume = GREATEST(COALESCE(ohlcv.volume, 0), COALESCE(EXCLUDED.volume, 0)),
+                    oi = EXCLUDED.oi
+            """)
+            
+            conn.commit()
+            
+            # Write OHLC data to cache for low-latency access
+            if CACHE_ENABLED and cache and cache.is_available():
+                try:
+                    cache.set_ohlc_batch(ohlcv_records, ttl=3600)  # 1 hour TTL
+                except Exception as cache_error:
+                    logging.warning(f"⚠️ Cache write failed: {cache_error}")
+            
+            elapsed = time_module.time() - start_time
+            self.total_db_operations += 1
+            self.total_records_processed += len(ohlcv_records)
+            
+            fifteen_min_records = sum(1 for r in ohlcv_records if r['interval'] == '15minute')
+            hourly_records = sum(1 for r in ohlcv_records if r['interval'] == '60minute')
+            daily_records = sum(1 for r in ohlcv_records if r['interval'] == '1day')
+            
+            logging.info(
+                f"💾 Saved {len(ohlcv_records)} records in {elapsed:.2f}s "
+                f"({len(ohlcv_records)/elapsed:.0f} rec/s) | "
+                f"{fifteen_min_records} 15min, {hourly_records} hourly, {daily_records} daily | Queue: {self.db_queue.qsize()}"
+            )
+            
+        except psycopg2.extensions.TransactionRollbackError as e:
+            # Deadlock detected - retry with exponential backoff
+            conn.rollback()
+            if retry_count < max_retries:
+                wait_time = 0.1 * (2 ** retry_count)  # Exponential backoff: 0.1s, 0.2s, 0.4s
+                logging.warning(f"⚠️ Deadlock detected, retrying in {wait_time}s (attempt {retry_count + 1}/{max_retries})")
+                time_module.sleep(wait_time)
+                return self._execute_bulk_upsert_fast(cursor, conn, ohlcv_records, retry_count + 1, max_retries)
+            else:
+                logging.error(f"❌ Deadlock persisted after {max_retries} retries, dropping {len(ohlcv_records)} records")
+                raise
+        except Exception as e:
+            logging.error(f"Error in bulk upsert: {e}")
+            conn.rollback()
+            raise
+    
+    def is_market_hours(self):
+        """Check if current time is within market hours (9:15 AM to 3:30 PM IST)"""
+        # Get current IST time
+        ist_now = datetime.now(IST)
+        current_time = ist_now.time()
+        market_start = time(9, 15)
+        market_end = time(15, 30)
+        return market_start <= current_time <= market_end
+    
+    def get_utc_timestamp(self, local_dt=None):
+        """Convert local datetime to UTC timestamp"""
+        if local_dt is None:
+            # Get current IST time and convert to UTC
+            ist_now = datetime.now(IST)
+            return ist_now.astimezone(UTC)
+        else:
+            # Assume local_dt is in IST if it's naive
+            if local_dt.tzinfo is None:
+                ist_dt = IST.localize(local_dt)
+            else:
+                ist_dt = local_dt
+            return ist_dt.astimezone(UTC)
+    
+    def ensure_timezone_aware(self, dt, default_tz=UTC):
+        """Ensure datetime object is timezone-aware"""
+        if dt is None:
+            return None
+        if dt.tzinfo is None:
+            return default_tz.localize(dt)
+        return dt
+    
+    def _aggregate_ticks_to_intervals_fast(self, ticks, timestamp):
+        """Fast aggregation without database queries (for processing worker)"""
+        if not ticks:
+            return []
+        
+        # Convert timestamp to UTC
+        utc_timestamp = self.get_utc_timestamp(timestamp)
+        
+        # Update OHLC tracking data (thread-safe)
+        self._update_ohlc_data_fast(ticks, utc_timestamp)
+        
+        ohlcv_records = []
+        
+        # Get unique instruments from current ticks
+        current_instruments = set(tick['instrument_token'] for tick in ticks if tick['instrument_token'] in self.instruments_data)
+        
+        with self.ohlc_lock:
+            for instrument_token in current_instruments:
+                instrument_info = self.instruments_data[instrument_token]
+                is_index = instrument_info.get('segment') == 'INDICES'
+                
+                # Create 15minute record (only for indices)
+                if is_index:
+                    # Round down to nearest 15-minute interval
+                    minute = (utc_timestamp.minute // 15) * 15
+                    fifteen_min_ts_utc = utc_timestamp.replace(minute=minute, second=0, microsecond=0)
+                    fifteen_min_key = (instrument_token, fifteen_min_ts_utc)
+                    
+                    if fifteen_min_key in self.fifteen_min_ohlc:
+                        fifteen_min_data = self.fifteen_min_ohlc[fifteen_min_key]
+                        
+                        if fifteen_min_data['open'] is not None:
+                            fifteen_min_record = {
+                                'instrument_token': instrument_token,
+                                'tradingsymbol': instrument_info['tradingsymbol'],
+                                'exchange': instrument_info['exchange'],
+                                'interval': '15minute',
+                                'ts': fifteen_min_ts_utc,
+                                'open': fifteen_min_data['open'],
+                                'high': fifteen_min_data['high'],
+                                'low': fifteen_min_data['low'],
+                                'close': fifteen_min_data['close'],
+                                'volume': fifteen_min_data['volume'],
+                                'oi': fifteen_min_data['oi']
+                            }
+                            ohlcv_records.append(fifteen_min_record)
+                
+                # Create 60minute record (hourly)
+                hour_ts_utc = utc_timestamp.replace(minute=0, second=0, microsecond=0)
+                hour_key = (instrument_token, hour_ts_utc)
+                
+                if hour_key in self.hourly_ohlc:
+                    hourly_data = self.hourly_ohlc[hour_key]
+                    
+                    if hourly_data['open'] is not None:
+                        hourly_record = {
+                            'instrument_token': instrument_token,
+                            'tradingsymbol': instrument_info['tradingsymbol'],
+                            'exchange': instrument_info['exchange'],
+                            'interval': '60minute',
+                            'ts': hour_ts_utc,
+                            'open': hourly_data['open'],
+                            'high': hourly_data['high'],
+                            'low': hourly_data['low'],
+                            'close': hourly_data['close'],
+                            'volume': hourly_data['volume'],
+                            'oi': hourly_data['oi']
+                        }
+                        ohlcv_records.append(hourly_record)
+                
+                # Create 1day record (daily)
+                day_ts_utc = utc_timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
+                day_key = (instrument_token, day_ts_utc)
+                
+                if day_key in self.daily_ohlc:
+                    daily_data = self.daily_ohlc[day_key]
+                    
+                    if daily_data['open'] is not None:
+                        daily_record = {
+                            'instrument_token': instrument_token,
+                            'tradingsymbol': instrument_info['tradingsymbol'],
+                            'exchange': instrument_info['exchange'],
+                            'interval': '1day',
+                            'ts': day_ts_utc,
+                            'open': daily_data['open'],
+                            'high': daily_data['high'],
+                            'low': daily_data['low'],
+                            'close': daily_data['close'],
+                            'volume': daily_data['volume'],
+                            'oi': daily_data['oi']
+                        }
+                        ohlcv_records.append(daily_record)
+        
+        return ohlcv_records
+    
+    def _update_ohlc_data_fast(self, ticks, timestamp_utc):
+        """Fast OHLC update without database queries"""
+        with self.ohlc_lock:
+            for tick in ticks:
+                instrument_token = tick['instrument_token']
+                if instrument_token not in self.instruments_data:
+                    continue
+                
+                instrument_info = self.instruments_data[instrument_token]
+                is_index = instrument_info.get('segment') == 'INDICES'
+                    
+                last_price = tick.get('last_price')
+                # Volume is cumulative for the day from Kite API
+                # Note: Indices don't have volume data, only stocks do
+                # Kite uses 'volume_traded' field
+                volume = tick.get('volume_traded', 0) if not is_index else 0
+                oi = tick.get('oi', 0)
+                
+                if not last_price:
+                    continue
+                
+                # Get hour and day keys for tracking
+                hour_key = (instrument_token, timestamp_utc.replace(minute=0, second=0, microsecond=0))
+                day_key = (instrument_token, timestamp_utc.replace(hour=0, minute=0, second=0, microsecond=0))
+                
+                # Update 15-minute OHLC (only for indices)
+                if is_index:
+                    minute = (timestamp_utc.minute // 15) * 15
+                    fifteen_min_ts = timestamp_utc.replace(minute=minute, second=0, microsecond=0)
+                    fifteen_min_key = (instrument_token, fifteen_min_ts)
+                    
+                    fifteen_min_data = self.fifteen_min_ohlc[fifteen_min_key]
+                    if fifteen_min_data['open'] is None:
+                        fifteen_min_data['open'] = last_price
+                        fifteen_min_data['first_tick_time'] = timestamp_utc
+                        # Capture starting volume for this interval
+                        fifteen_min_data['volume_start'] = volume
+                    
+                    if fifteen_min_data['high'] is None or last_price > fifteen_min_data['high']:
+                        fifteen_min_data['high'] = last_price
+                    if fifteen_min_data['low'] is None or last_price < fifteen_min_data['low']:
+                        fifteen_min_data['low'] = last_price
+                    
+                    fifteen_min_data['close'] = last_price
+                    fifteen_min_data['last_tick_time'] = timestamp_utc
+                    # Calculate interval volume: current cumulative - starting cumulative
+                    if fifteen_min_data['volume_start'] is not None:
+                        fifteen_min_data['volume'] = max(0, volume - fifteen_min_data['volume_start'])
+                    else:
+                        fifteen_min_data['volume'] = 0
+                    fifteen_min_data['oi'] = oi
+                
+                # Update hourly OHLC
+                hourly_data = self.hourly_ohlc[hour_key]
+                if hourly_data['open'] is None:
+                    hourly_data['open'] = last_price
+                    hourly_data['first_tick_time'] = timestamp_utc
+                    # Capture starting volume for this hour
+                    hourly_data['volume_start'] = volume
+                
+                if hourly_data['high'] is None or last_price > hourly_data['high']:
+                    hourly_data['high'] = last_price
+                if hourly_data['low'] is None or last_price < hourly_data['low']:
+                    hourly_data['low'] = last_price
+                
+                hourly_data['close'] = last_price
+                hourly_data['last_tick_time'] = timestamp_utc
+                # Calculate hourly volume: current cumulative - starting cumulative
+                if hourly_data['volume_start'] is not None:
+                    hourly_data['volume'] = max(0, volume - hourly_data['volume_start'])
+                else:
+                    hourly_data['volume'] = 0
+                hourly_data['oi'] = oi
+                
+                # Update daily OHLC
+                daily_data = self.daily_ohlc[day_key]
+                if daily_data['open'] is None:
+                    daily_data['open'] = last_price
+                    daily_data['first_tick_time'] = timestamp_utc
+                    # For daily, starting volume should be 0 (start of day)
+                    daily_data['volume_start'] = 0
+                
+                if daily_data['high'] is None or last_price > daily_data['high']:
+                    daily_data['high'] = last_price
+                if daily_data['low'] is None or last_price < daily_data['low']:
+                    daily_data['low'] = last_price
+                
+                daily_data['close'] = last_price
+                daily_data['last_tick_time'] = timestamp_utc
+                # For daily, volume is just the cumulative total (volume_traded)
+                daily_data['volume'] = volume
+                daily_data['oi'] = oi
+    
+    def update_ohlc_data(self, ticks, timestamp_utc):
+        """Update OHLC data with proper aggregation logic (thread-safe)"""
+        
+        with self.ohlc_lock:  # Thread-safe access to OHLC data
+            for tick in ticks:
+                instrument_token = tick['instrument_token']
+                if instrument_token not in self.instruments_data:
+                    continue
+                
+                instrument_info = self.instruments_data[instrument_token]
+                is_index = instrument_info.get('segment') == 'INDICES'
+                    
+                last_price = tick.get('last_price')
+                # Kite uses 'volume_traded' field
+                volume = tick.get('volume_traded', 0)
+                oi = tick.get('oi', 0)
+                
+                if not last_price:
+                    continue
+                
+                # Get hour and day keys for tracking
+                hour_key = (instrument_token, timestamp_utc.replace(minute=0, second=0, microsecond=0))
+                day_key = (instrument_token, timestamp_utc.replace(hour=0, minute=0, second=0, microsecond=0))
+                
+                # Update 15-minute OHLC (only for indices)
+                if is_index:
+                    minute = (timestamp_utc.minute // 15) * 15
+                    fifteen_min_ts = timestamp_utc.replace(minute=minute, second=0, microsecond=0)
+                    fifteen_min_key = (instrument_token, fifteen_min_ts)
+                    
+                    fifteen_min_data = self.fifteen_min_ohlc[fifteen_min_key]
+                    if fifteen_min_data['open'] is None:  # First tick of the 15-min interval
+                        fifteen_min_data['open'] = last_price
+                        fifteen_min_data['first_tick_time'] = timestamp_utc
+                    
+                    # Update high and low
+                    if fifteen_min_data['high'] is None or last_price > fifteen_min_data['high']:
+                        fifteen_min_data['high'] = last_price
+                    if fifteen_min_data['low'] is None or last_price < fifteen_min_data['low']:
+                        fifteen_min_data['low'] = last_price
+                    
+                    # Always update close (latest price)
+                    fifteen_min_data['close'] = last_price
+                    fifteen_min_data['last_tick_time'] = timestamp_utc
+                    
+                    # Update volume and OI
+                    fifteen_min_data['volume'] = max(fifteen_min_data['volume'], volume)
+                    fifteen_min_data['oi'] = oi
+                
+                # Update hourly OHLC
+                hourly_data = self.hourly_ohlc[hour_key]
+                if hourly_data['open'] is None:  # First tick of the hour
+                    hourly_data['open'] = last_price
+                    hourly_data['first_tick_time'] = timestamp_utc
+                
+                # Update high and low
+                if hourly_data['high'] is None or last_price > hourly_data['high']:
+                    hourly_data['high'] = last_price
+                if hourly_data['low'] is None or last_price < hourly_data['low']:
+                    hourly_data['low'] = last_price
+                
+                # Always update close (latest price)
+                hourly_data['close'] = last_price
+                hourly_data['last_tick_time'] = timestamp_utc
+                
+                # Update volume and OI (use latest values, not cumulative for individual ticks)
+                hourly_data['volume'] = max(hourly_data['volume'], volume)
+                hourly_data['oi'] = oi  # OI is always the latest value
+                
+                # Update daily OHLC (same logic)
+                daily_data = self.daily_ohlc[day_key]
+                if daily_data['open'] is None:  # First tick of the day
+                    daily_data['open'] = last_price
+                    daily_data['first_tick_time'] = timestamp_utc
+                
+                # Update high and low
+                if daily_data['high'] is None or last_price > daily_data['high']:
+                    daily_data['high'] = last_price
+                if daily_data['low'] is None or last_price < daily_data['low']:
+                    daily_data['low'] = last_price
+                
+                # Always update close (latest price)
+                daily_data['close'] = last_price
+                daily_data['last_tick_time'] = timestamp_utc
+                
+                # Update volume and OI
+                daily_data['volume'] = max(daily_data['volume'], volume)
+                daily_data['oi'] = oi
+    
+    def aggregate_ticks_to_intervals(self, ticks, timestamp):
+        """Legacy method - now redirects to fast version"""
+        return self._aggregate_ticks_to_intervals_fast(ticks, timestamp)
+    
+    def cleanup_old_ohlc_tracking(self):
+        """Clean up old OHLC tracking data to prevent memory leaks (thread-safe)"""
+        with self.ohlc_lock:
+            current_time_utc = datetime.now(UTC)
+            
+            # Clean 15-minute data older than 2 hours
+            fifteen_min_cutoff = current_time_utc - timedelta(hours=2)
+            keys_to_remove_15min = []
+            for key in self.fifteen_min_ohlc:
+                key_timestamp = key[1]
+                if key_timestamp.tzinfo is None:
+                    key_timestamp = UTC.localize(key_timestamp)
+                
+                if key_timestamp < fifteen_min_cutoff:
+                    keys_to_remove_15min.append(key)
+            
+            for key in keys_to_remove_15min:
+                del self.fifteen_min_ohlc[key]
+            
+            # Clean hourly data older than 2 hours
+            hourly_cutoff = current_time_utc - timedelta(hours=2)
+            keys_to_remove = []
+            for key in self.hourly_ohlc:
+                # Ensure the timestamp in key is timezone-aware
+                key_timestamp = key[1]
+                if key_timestamp.tzinfo is None:
+                    key_timestamp = UTC.localize(key_timestamp)
+                
+                if key_timestamp < hourly_cutoff:
+                    keys_to_remove.append(key)
+            
+            for key in keys_to_remove:
+                del self.hourly_ohlc[key]
+            
+            # Clean daily data older than 2 days
+            daily_cutoff = current_time_utc - timedelta(days=2)
+            keys_to_remove_daily = []
+            for key in self.daily_ohlc:
+                # Ensure the timestamp in key is timezone-aware
+                key_timestamp = key[1]
+                if key_timestamp.tzinfo is None:
+                    key_timestamp = UTC.localize(key_timestamp)
+                
+                if key_timestamp < daily_cutoff:
+                    keys_to_remove_daily.append(key)
+            
+            for key in keys_to_remove_daily:
+                del self.daily_ohlc[key]
+            
+            total_removed = len(keys_to_remove_15min) + len(keys_to_remove) + len(keys_to_remove_daily)
+            if total_removed > 0:
+                logging.info(f"🧹 Cleaned up {total_removed} old OHLC tracking entries ({len(keys_to_remove_15min)} 15min, {len(keys_to_remove)} hourly, {len(keys_to_remove_daily)} daily)")
+    def save_ohlcv_data_bulk(self, ohlcv_records):
+        """Queue OHLCV records for async database save (non-blocking)"""
+        if not ohlcv_records:
+            return
+        
+        try:
+            # Add to queue without blocking (use put_nowait)
+            self.db_queue.put_nowait(ohlcv_records)
+            logging.debug(f"📤 Queued {len(ohlcv_records)} records for DB save (queue size: {self.db_queue.qsize()})")
+        except queue.Full:
+            logging.warning(f"⚠️ DB queue full! Dropping {len(ohlcv_records)} records. Consider increasing queue size or DB worker threads.")
+            self.failed_db_operations += 1
+    
+    def process_and_save_interval_data(self):
+        """Queue accumulated ticks for async processing (ultra-fast, non-blocking)"""
+        current_time_ist = datetime.now(IST)
+        
+        if not self.tick_buffer:
+            logging.debug("No ticks in buffer to process")
+            return
+        
+        try:
+            # Count total ticks
+            total_ticks = sum(len(ticks) for ticks in self.tick_buffer.values())
+            unique_instruments = len(self.tick_buffer)
+            
+            # Collect all ticks
+            all_ticks = []
+            for instrument_token, ticks in self.tick_buffer.items():
+                all_ticks.extend(ticks)
+            
+            # Queue for processing (non-blocking)
+            try:
+                self.processing_queue.put_nowait((all_ticks, current_time_ist))
+                logging.info(f"📤 Queued {total_ticks} ticks from {unique_instruments} instruments | Processing queue: {self.processing_queue.qsize()}")
+            except queue.Full:
+                logging.warning(f"⚠️ Processing queue full! Dropping {total_ticks} ticks")
+            
+            # Clear buffer immediately
+            self.tick_buffer.clear()
+            
+            # Clean up old OHLC tracking data periodically
+            if self.total_ticks_received % 50000 == 0:
+                self.cleanup_old_ohlc_tracking()
+            
+        except Exception as e:
+            logging.error(f"Error queueing ticks: {e}")
+            import traceback
+            logging.error(f"Traceback: {traceback.format_exc()}")
+    
+    def log_status_update(self):
+        """Log periodic status updates"""
+        current_time = datetime.now()
+        buffer_size = sum(len(v) for v in self.tick_buffer.values())
+        active_instruments = len(self.tick_buffer)
+        
+        # Sample volume data from a few instruments
+        sample_volumes = []
+        with self.ohlc_lock:
+            for (token, ts), data in list(self.daily_ohlc.items())[:3]:
+                if data['volume'] > 0 and token in self.instruments_data:
+                    symbol = self.instruments_data[token]['tradingsymbol']
+                    sample_volumes.append(f"{symbol}:{data['volume']:,}")
+        
+        volume_info = f" | Vol: {', '.join(sample_volumes)}" if sample_volumes else " | Vol: checking..."
+        
+        logging.info(
+            f"📊 STATUS: {self.total_ticks_received:,} received | {self.total_ticks_processed:,} processed | "
+            f"{buffer_size} buffered | {active_instruments} active | "
+            f"ProcQ: {self.processing_queue.qsize()} | DBQ: {self.db_queue.qsize()} | "
+            f"{self.total_records_processed:,} saved | Failed: {self.failed_db_operations}{volume_info}"
+        )
+    
+    def on_ticks(self, ws, ticks):
+        """Callback to receive ticks"""
+        try:
+            # Get current time in IST and UTC
+            current_time_ist = datetime.now(IST)
+            current_time_utc = current_time_ist.astimezone(UTC)
+            
+            # Update tick counter
+            self.total_ticks_received += len(ticks)
+            
+            # Debug: Log first tick to see structure (only once per session)
+            if not hasattr(self, '_logged_tick_sample'):
+                if ticks:
+                    sample_tick = ticks[0]
+                    logging.info(f"📊 Sample tick data: {sample_tick}")
+                    self._logged_tick_sample = True
+            
+            # Write ticks to cache (real-time, low latency)
+            if CACHE_ENABLED and cache and cache.is_available():
+                for tick in ticks:
+                    instrument_token = tick['instrument_token']
+                    if instrument_token in self.instruments_data:
+                        instrument_info = self.instruments_data[instrument_token]
+                        symbol = instrument_info['tradingsymbol']
+                        
+                        # Prepare tick data for cache
+                        tick_data = {
+                            'last_price': tick.get('last_price'),
+                            'volume': tick.get('volume_traded', 0),  # Kite uses 'volume_traded'
+                            'oi': tick.get('oi', 0),
+                            'change': tick.get('change', 0),
+                            'timestamp': current_time_ist.isoformat(),
+                            'instrument_token': instrument_token,
+                            'exchange': instrument_info['exchange']
+                        }
+                        
+                        # Write to cache (non-blocking, fast)
+                        cache.set_tick(symbol, tick_data, ttl=300)  # 5 min TTL
+            
+            # Add ticks to buffer for database persistence
+            for tick in ticks:
+                instrument_token = tick['instrument_token']
+                if instrument_token in self.instruments_data:
+                    self.tick_buffer[instrument_token].append(tick)
+            
+            # Initialize timezone-aware timestamps if None
+            if self.last_status_update is None:
+                self.last_status_update = current_time_utc
+            if self.last_hour_update is None:
+                self.last_hour_update = current_time_utc.replace(minute=0, second=0, microsecond=0)
+            if self.last_day_update is None:
+                self.last_day_update = current_time_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+            if self.last_interval_update is None:
+                self.last_interval_update = current_time_utc
+            
+            # Log status every 30 seconds
+            if (current_time_utc - self.last_status_update).total_seconds() >= 30:
+                self.log_status_update()
+                self.last_status_update = current_time_utc
+            
+            # Check if we need to process hourly data (every hour) - using UTC
+            current_hour_utc = current_time_utc.replace(minute=0, second=0, microsecond=0)
+            
+            if current_hour_utc > self.last_hour_update:
+                # New hour started, process previous hour's data
+                logging.info(f"🕐 New hour detected (UTC): {current_hour_utc}")
+                self.process_and_save_interval_data()
+                self.last_hour_update = current_hour_utc
+            
+            # Check if we need to process daily data (every day) - using UTC
+            current_day_utc = current_time_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+            
+            if current_day_utc > self.last_day_update:
+                # New day started, process previous day's data
+                logging.info(f"📅 New day detected (UTC): {current_day_utc}")
+                self.process_and_save_interval_data()
+                self.last_day_update = current_day_utc
+            
+            # Process data at configured interval (configurable from 15s to any value)
+            if (current_time_utc - self.last_interval_update).total_seconds() >= self.update_interval:
+                logging.info(f"⏰ Interval update ({self.update_interval}s): {current_time_utc.strftime('%H:%M:%S')} UTC")
+                self.process_and_save_interval_data()
+                self.last_interval_update = current_time_utc
+            
+        except Exception as e:
+            logging.error(f"Error processing ticks: {e}")
+            import traceback
+            logging.error(f"Traceback: {traceback.format_exc()}")
+    
+    def on_connect(self, ws, response):
+        """Callback on successful connect"""
+        try:
+            instrument_tokens = list(self.instruments_data.keys())
+            
+            # Subscribe to instrument tokens
+            ws.subscribe(instrument_tokens)
+            ws.set_mode(ws.MODE_FULL, instrument_tokens)
+            
+            logging.info(f"🚀 Connected and subscribed to {len(instrument_tokens)} instruments")
+            logging.info("📡 Streaming started - waiting for market data...")
+            
+            # Initialize status tracking with timezone-aware datetime
+            current_time_utc = datetime.now(UTC)
+            self.last_status_update = current_time_utc
+            self.last_hour_update = current_time_utc.replace(minute=0, second=0, microsecond=0)
+            self.last_day_update = current_time_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+            self.last_interval_update = current_time_utc
+            
+        except Exception as e:
+            logging.error(f"Error on connect: {e}")
+            import traceback
+            logging.error(f"Traceback: {traceback.format_exc()}")
+    
+    def on_close(self, ws, code, reason):
+        """On connection close - attempt reconnect"""
+        logging.warning(f"⚠️ Connection closed: {code} - {reason}")
+        
+        # Auto-reconnect for certain error codes
+        if code in [1006, 1000]:  # Unclean close or normal close
+            logging.info("🔄 Attempting to reconnect in 5 seconds...")
+            time_module.sleep(5)
+            
+            try:
+                logging.info("🔄 Reconnecting...")
+                self.start_streaming()
+            except Exception as e:
+                logging.error(f"Failed to reconnect: {e}")
+        else:
+            ws.stop()
+    
+    def on_error(self, ws, code, reason):
+        """On connection error"""
+        logging.error(f"❌ Connection error: {code} - {reason}")
+    
+    def start_streaming(self):
+        """Start the real-time streaming"""
+        try:
+            if not self.access_token:
+                logging.error("No access token available. Please set up Kite connection first.")
+                return
+            
+            # Initialize KiteTicker
+            self.kws = KiteTicker(api_key, self.access_token)
+            
+            # Assign callbacks
+            self.kws.on_ticks = self.on_ticks
+            self.kws.on_connect = self.on_connect
+            self.kws.on_close = self.on_close
+            self.kws.on_error = self.on_error
+            
+            # Start streaming
+            logging.info("Starting real-time streaming...")
+            self.kws.connect(threaded=False)  # Run in main thread
+            
+        except Exception as e:
+            logging.error(f"Error starting streaming: {e}")
+            raise
+    
+    def cleanup(self):
+        """Cleanup resources"""
+        try:
+            logging.info("🛑 Starting cleanup...")
+            
+            # Process any remaining ticks
+            if self.tick_buffer:
+                logging.info("Processing remaining ticks...")
+                self.process_and_save_interval_data()
+            
+            # Stop processing worker
+            if self.processing_worker_running:
+                logging.info("Stopping processing worker...")
+                self.processing_worker_running = False
+                self.processing_queue.put(None)  # Poison pill
+                
+                if self.processing_worker_thread:
+                    self.processing_worker_thread.join(timeout=10)
+            
+            # Stop database worker
+            if self.db_worker_running:
+                logging.info(f"Stopping {self.num_db_workers} database workers...")
+                self.db_worker_running = False
+                
+                # Send poison pills for all workers
+                for _ in range(self.num_db_workers):
+                    self.db_queue.put(None)
+                
+                # Wait for all workers to finish
+                for thread in self.db_worker_threads:
+                    thread.join(timeout=10)
+            
+            # Wait for queues to empty
+            if not self.processing_queue.empty():
+                logging.info(f"Waiting for {self.processing_queue.qsize()} processing operations...")
+                self.processing_queue.join()
+            
+            if not self.db_queue.empty():
+                logging.info(f"Waiting for {self.db_queue.qsize()} DB operations...")
+                self.db_queue.join()
+            
+            # Close session
+            if self.session:
+                self.session.close()
+            
+            logging.info("✅ Cleanup completed")
+            logging.info(
+                f"📈 Final stats: {self.total_ticks_received:,} received | "
+                f"{self.total_ticks_processed:,} processed | "
+                f"{self.total_records_processed:,} saved | "
+                f"{self.failed_db_operations} failures"
+            )
+            
+        except Exception as e:
+            logging.error(f"Error during cleanup: {e}")
+
+def main():
+    """Main function to run the streamer"""
+    streamer = None
+    
+    try:
+        # Check if it's market hours (using IST)
+        ist_now = datetime.now(IST)
+        current_time = ist_now.time()
+        market_start = time(9, 15)
+        market_end = time(15, 30)
+        
+        if not (market_start <= current_time <= market_end):
+            logging.info(f"Outside market hours (IST: {ist_now.strftime('%H:%M:%S')}). Streamer will run but may not receive data.")
+        else:
+            logging.info(f"Market hours active (IST: {ist_now.strftime('%H:%M:%S')}). Starting streamer...")
+        
+        # Log timezone information
+        utc_now = ist_now.astimezone(UTC)
+        logging.info(f"Timezone info - IST: {ist_now.strftime('%Y-%m-%d %H:%M:%S %Z')}, UTC: {utc_now.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+        logging.info("All database timestamps will be stored in UTC")
+        
+        # Get update interval from command line argument or use default
+        import sys
+        update_interval = None
+        
+        if len(sys.argv) > 1:
+            try: 
+                update_interval = int(sys.argv[1])
+                if update_interval < MIN_UPDATE_INTERVAL:
+                    logging.error(f"Update interval must be at least {MIN_UPDATE_INTERVAL} seconds")
+                    return
+                logging.info(f"Using command line update interval: {update_interval} seconds")
+            except ValueError:
+                logging.error("Invalid update interval provided. Please provide an integer value in seconds.")
+                return
+        
+        # Initialize and start streamer
+        streamer = RealTimeStreamer(update_interval=update_interval)
+        streamer.start_streaming()
+        
+    except KeyboardInterrupt:
+        logging.info("Received interrupt signal. Shutting down...")
+    except Exception as e:
+        logging.error(f"Error in main: {e}")
+    finally:
+        if streamer:
+            streamer.cleanup()
+
+if __name__ == "__main__":
+    main()
